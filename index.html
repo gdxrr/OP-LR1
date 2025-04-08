@@ -39,16 +39,75 @@
         .add-form button {
             padding: 8px;
             width: 20%;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
         }
-        .delete-form {
-            display: inline;
+        .add-form button:hover {
+            background-color: #45a049;
+        }
+        .delete-form, .edit-form, .confirm-form, .cancel-form {
+            display: inline-block;
+            margin: 0 4px;
+        }
+        .action-buttons {
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
         .delete-btn {
             cursor: pointer;
             background-color: #ff4444;
             color: white;
             border: none;
-            padding: 4px 8px;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        .delete-btn:hover {
+            background-color: #cc0000;
+        }
+        .edit-btn {
+            cursor: pointer;
+            background-color: #4444ff;
+            color: white;
+            border: none;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        .edit-btn:hover {
+            background-color: #0000cc;
+        }
+        .confirm-btn {
+            cursor: pointer;
+            background-color: #44ff44;
+            color: white;
+            border: none;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        .confirm-btn:hover {
+            background-color: #00cc00;
+        }
+        .cancel-btn {
+            cursor: pointer;
+            background-color: #ff4444;
+            color: white;
+            border: none;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        .cancel-btn:hover {
+            background-color: #cc0000;
+        }
+        .edit-input {
+            width: 70%;
+            padding: 6px;
+            margin-right: 8px;
         }
     </style>
 </head>
