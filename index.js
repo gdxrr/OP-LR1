@@ -41,13 +41,31 @@ async function addListItem(text) {
     }
 }
 
+async function deleteListItem(id) {
+    try {
+        const connection = await mysql.createConnection(dbConfig);
+        const query = 'DELETE FROM items WHERE id = ?';
+        const [result] = await connection.execute(query, [id]);
+        await connection.end();
+        return result;
+    } catch (error) {
+        console.error('Error deleting list item:', error);
+        throw error;
+    }
+}
+
 async function getHtmlRows() {
     const todoItems = await retrieveListItems();
     return todoItems.map(item => `
         <tr>
             <td>${item.id}</td>
             <td>${item.text}</td>
-            <td><button class="delete-btn">×</button></td>
+            <td>
+                <form action="/delete" method="POST" class="delete-form">
+                    <input type="hidden" name="id" value="${item.id}">
+                    <button type="submit" class="delete-btn">×</button>
+                </form>
+            </td>
         </tr>
     `).join('');
 }
@@ -90,13 +108,40 @@ async function handleRequest(req, res) {
 
                 await addListItem(text);
                 
-                // Redirect back to the main page
                 res.writeHead(302, { 'Location': '/' });
                 res.end();
             } catch (err) {
                 console.error(err);
                 res.writeHead(500, { 'Content-Type': 'text/plain' });
                 res.end('Error adding item');
+            }
+        });
+    } else if (req.method === 'POST' && parsedUrl.pathname === '/delete') {
+        let body = '';
+        
+        req.on('data', chunk => {
+            body += chunk.toString();
+        });
+
+        req.on('end', async () => {
+            try {
+                const postData = querystring.parse(body);
+                const id = postData.id;
+
+                if (!id) {
+                    res.writeHead(400, { 'Content-Type': 'text/plain' });
+                    res.end('ID is required');
+                    return;
+                }
+
+                await deleteListItem(id);
+                
+                res.writeHead(302, { 'Location': '/' });
+                res.end();
+            } catch (err) {
+                console.error(err);
+                res.writeHead(500, { 'Content-Type': 'text/plain' });
+                res.end('Error deleting item');
             }
         });
     } else {
