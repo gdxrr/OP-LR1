@@ -18,7 +18,7 @@ const dbConfig = {
 async function retrieveListItems() {
     try {
         const connection = await mysql.createConnection(dbConfig);
-        const query = 'SELECT id, text FROM items';
+        const query = 'SELECT id, text FROM items ORDER BY id ASC'; // Order by id to maintain consistency
         const [rows] = await connection.execute(query);
         await connection.end();
         return rows;
@@ -69,11 +69,12 @@ async function editListItem(id, text) {
 
 async function getHtmlRows(editingId = null) {
     const todoItems = await retrieveListItems();
-    return todoItems.map(item => {
+    return todoItems.map((item, index) => {
+        const displayNumber = index + 1; // Sequential number starting from 1
         if (editingId === item.id.toString()) {
             return `
                 <tr>
-                    <td>${item.id}</td>
+                    <td>${displayNumber}</td>
                     <td>
                         <form action="/confirm" method="POST" class="confirm-form">
                             <input type="hidden" name="id" value="${item.id}">
@@ -91,7 +92,7 @@ async function getHtmlRows(editingId = null) {
         } else {
             return `
                 <tr>
-                    <td>${item.id}</td>
+                    <td>${displayNumber}</td>
                     <td>${item.text}</td>
                     <td>
                         <div class="action-buttons">
