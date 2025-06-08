@@ -234,7 +234,6 @@ async function handleRequest(req, res) {
             authSection = `
                 <div class="form-container">
                     <h1>Register</h1>
-                    <h2>Log in</h2>
                     <form action="/register" method="POST">
                         <input type="text" name="username" placeholder="Username" required>
                         <div class="password-wrapper">
@@ -253,14 +252,14 @@ async function handleRequest(req, res) {
             authSection = `
                 <div class="form-container">
                     <h1>Log In</h1>
-                    <div class="register-link">
-                        <a href="/register">Register</a>
-                    </div>
                     <form action="/login" method="POST">
                         <input type="text" name="username" placeholder="Username" required>
                         <input type="password" name="password" placeholder="Password" required>
                         <button type="submit" class="login-btn">Log in</button>
                     </form>
+                    <div class="register-link">
+                        <a href="/register">Register</a>
+                    </div>
                     <div class="login-link"></div>
                     <p class="error-message">{{error}}</p>
                 </div>
@@ -417,14 +416,14 @@ async function handleRequest(req, res) {
         authSection = `
             <div class="form-container">
                 <h1>Log In</h1>
-                <div class="register-link">
-                    <a href="/register">Register</a>
-                </div>
                 <form action="/login" method="POST">
                     <input type="text" name="username" placeholder="Username" required>
                     <input type="password" name="password" placeholder="Password" required>
                     <button type="submit" class="login-btn">Log in</button>
                 </form>
+                <div class="register-link">
+                        <a href="/register">Register</a>
+                    </div>
                 <div class="login-link"></div>
                 <p class="error-message">{{error}}</p>
             </div>
