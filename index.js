@@ -9,16 +9,16 @@ const { v4: uuidv4 } = require('uuid');
 
 const PORT = 3000;
 
-// Database connection settings
-const dbConfig = {
+// Database connection pool settings
+const pool = mysql.createPool({
     host: 'localhost',
     user: 'root',
     password: 'root',
     database: 'todolist',
-};
-
-// In-memory session store (for simplicity; use Redis or similar in production)
-const sessions = {};
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0,
+});
 
 // Helper function to hash passwords
 function hashPassword(password) {
@@ -29,137 +29,181 @@ function hashPassword(password) {
 async function getUserFromSession(req) {
     const cookies = querystring.parse(req.headers.cookie || '', '; ');
     const sessionId = cookies.sessionId;
-    if (!sessionId || !sessions[sessionId]) return null;
-    return sessions[sessionId];
+    if (!sessionId) return null;
+
+    const [rows] = await pool.execute(
+        'SELECT user_id FROM sessions WHERE session_id = ? AND expires_at > NOW()',
+        [sessionId]
+    );
+    if (rows.length === 0) return null;
+
+    const [userRows] = await pool.execute(
+        'SELECT id, username FROM users WHERE id = ?',
+        [rows[0].user_id]
+    );
+    return userRows.length > 0 ? { id: userRows[0].id, username: userRows[0].username } : null;
 }
 
 // Database functions
 async function retrieveListItems(userId) {
     try {
-        const connection = await mysql.createConnection(dbConfig);
-        const query = 'SELECT id, text FROM items WHERE user_id = ? ORDER BY id ASC';
-        const [rows] = await connection.execute(query, [userId]);
-        await connection.end();
+        const [rows] = await pool.execute(
+            'SELECT id, text FROM items WHERE user_id = ? ORDER BY id ASC',
+            [userId]
+        );
         return rows;
     } catch (error) {
-        console.error('Error retrieving list items:', error);
+        console.error('Error retrieving list items for user', userId, ':', error);
         throw error;
     }
 }
 
 async function addListItem(text, userId) {
     try {
-        const connection = await mysql.createConnection(dbConfig);
-        const query = 'INSERT INTO items (text, user_id) VALUES (?, ?)';
-        const [result] = await connection.execute(query, [text, userId]);
-        await connection.end();
+        const [result] = await pool.execute(
+            'INSERT INTO items (text, user_id) VALUES (?, ?)',
+            [text, userId]
+        );
         return result;
     } catch (error) {
-        console.error('Error adding list item:', error);
+        console.error('Error adding list item for user', userId, ':', error);
         throw error;
     }
 }
 
 async function deleteListItem(id, userId) {
     try {
-        const connection = await mysql.createConnection(dbConfig);
-        const query = 'DELETE FROM items WHERE id = ? AND user_id = ?';
-        const [result] = await connection.execute(query, [id, userId]);
-        await connection.end();
+        const [result] = await pool.execute(
+            'DELETE FROM items WHERE id = ? AND user_id = ?',
+            [id, userId]
+        );
         return result;
     } catch (error) {
-        console.error('Error deleting list item:', error);
+        console.error('Error deleting list item for user', userId, ':', error);
         throw error;
     }
 }
 
 async function editListItem(id, text, userId) {
     try {
-        const connection = await mysql.createConnection(dbConfig);
-        const query = 'UPDATE items SET text = ? WHERE id = ? AND user_id = ?';
-        const [result] = await connection.execute(query, [text, id, userId]);
-        await connection.end();
+        const [result] = await pool.execute(
+            'UPDATE items SET text = ? WHERE id = ? AND user_id = ?',
+            [text, id, userId]
+        );
         return result;
     } catch (error) {
-        console.error('Error editing list item:', error);
+        console.error('Error editing list item for user', userId, ':', error);
         throw error;
     }
 }
 
 async function registerUser(username, password) {
     try {
-        const connection = await mysql.createConnection(dbConfig);
         const hashedPassword = hashPassword(password);
-        const query = 'INSERT INTO users (username, password) VALUES (?, ?)';
-        const [result] = await connection.execute(query, [username, hashedPassword]);
-        await connection.end();
+        const [result] = await pool.execute(
+            'INSERT INTO users (username, password) VALUES (?, ?)',
+            [username, hashedPassword]
+        );
+        console.log('Registration successful for:', username);
         return result;
     } catch (error) {
-        console.error('Error registering user:', error);
+        console.error('Registration error for', username, ':', error);
         throw error;
     }
 }
 
 async function loginUser(username, password) {
     try {
-        const connection = await mysql.createConnection(dbConfig);
-        const query = 'SELECT id, username, password FROM users WHERE username = ?';
-        const [rows] = await connection.execute(query, [username]);
-        await connection.end();
+        const [rows] = await pool.execute(
+            'SELECT id, username, password FROM users WHERE username = ?',
+            [username]
+        );
         if (rows.length === 0) return null;
         const user = rows[0];
         const hashedPassword = hashPassword(password);
         if (user.password !== hashedPassword) return null;
         return { id: user.id, username: user.username };
     } catch (error) {
-        console.error('Error logging in user:', error);
+        console.error('Login error for', username, ':', error);
         throw error;
     }
 }
 
-async function getHtmlRows(userId, editingId = null) {
-    const todoItems = await retrieveListItems(userId);
-    return todoItems.map((item, index) => {
-        const displayNumber = index + 1;
-        if (editingId === item.id.toString()) {
-            return `
-                <tr>
-                    <td>${displayNumber}</td>
-                    <td>
-                        <form action="/confirm" method="POST" class="confirm-form">
-                            <input type="hidden" name="id" value="${item.id}">
-                            <input type="text" name="text" value="${item.text}" class="edit-input">
-                            <button type="submit" class="confirm-btn">✓</button>
-                        </form>
-                        <form action="/cancel" method="POST" class="cancel-form">
-                            <input type="hidden" name="id" value="${item.id}">
-                            <button type="submit" class="cancel-btn">×</button>
-                        </form>
-                    </td>
-                    <td></td>
-                </tr>
-            `;
-        } else {
-            return `
-                <tr>
-                    <td>${displayNumber}</td>
-                    <td>${item.text}</td>
-                    <td>
-                        <div class="action-buttons">
-                            <form action="/edit" method="POST" class="edit-form">
+async function createSession(userId) {
+    try {
+        const sessionId = uuidv4();
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours expiration
+        await pool.execute(
+            'INSERT INTO sessions (session_id, user_id, expires_at) VALUES (?, ?, ?)',
+            [sessionId, userId, expiresAt]
+        );
+        return sessionId;
+    } catch (error) {
+        console.error('Error creating session for user', userId, ':', error);
+        throw error;
+    }
+}
+
+async function deleteSession(sessionId) {
+    try {
+        await pool.execute(
+            'DELETE FROM sessions WHERE session_id = ?',
+            [sessionId]
+        );
+    } catch (error) {
+        console.error('Error deleting session', sessionId, ':', error);
+        throw error;
+    }
+}
+
+async function getHtmlRows(userId, editingId) {
+    try {
+        const todoItems = await retrieveListItems(userId);
+        return todoItems.map((item, index) => {
+            const displayNumber = index + 1;
+            if (editingId === item.id.toString()) {
+                return `
+                    <tr>
+                        <td>${displayNumber}</td>
+                        <td>
+                            <form action="/confirm" method="POST" class="confirm-form">
                                 <input type="hidden" name="id" value="${item.id}">
-                                <button type="submit" class="edit-btn">✎</button>
+                                <input type="text" name="text" value="${item.text}" class="edit-input">
+                                <button type="submit" class="confirm-btn">✓</button>
                             </form>
-                            <form action="/delete" method="POST" class="delete-form">
+                            <form action="/cancel" method="POST" class="cancel-form">
                                 <input type="hidden" name="id" value="${item.id}">
-                                <button type="submit" class="delete-btn">🗑️</button>
+                                <button type="submit" class="cancel-btn">×</button>
                             </form>
-                        </div>
-                    </td>
-                </tr>
-            `;
-        }
-    }).join('');
+                        </td>
+                        <td></td>
+                    </tr>
+                `;
+            } else {
+                return `
+                    <tr>
+                        <td>${displayNumber}</td>
+                        <td>${item.text}</td>
+                        <td>
+                            <div class="action-buttons">
+                                <form action="/edit" method="POST" class="edit-form">
+                                    <input type="hidden" name="id" value="${item.id}">
+                                    <button type="submit" class="edit-btn">✎</button>
+                                </form>
+                                <form action="/delete" method="POST" class="delete-form">
+                                    <input type="hidden" name="id" value="${item.id}">
+                                    <button type="submit" class="delete-btn">🗑️</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }
+        }).join('');
+    } catch (error) {
+        console.error('Error generating HTML rows for user', userId, ':', error);
+        throw error;
+    }
 }
 
 async function handleRequest(req, res) {
@@ -171,56 +215,80 @@ async function handleRequest(req, res) {
     try {
         html = await fs.promises.readFile(path.join(__dirname, 'index.html'), 'utf8');
     } catch (err) {
-        console.error(err);
+        console.error('Error loading index.html:', err);
         res.writeHead(500, { 'Content-Type': 'text/plain' });
         res.end('Error loading index.html');
         return;
     }
 
-    // Authentication section
+    // Determine if registration form should be shown
+    let showRegister = false;
+    if (req.method === 'GET' && parsedUrl.pathname === '/register') {
+        showRegister = true;
+    }
+
     let authSection = '';
     let todoSection = '';
     if (!user) {
-        authSection = `
-            <div class="form-container">
-                <h2>Login</h2>
-                <form action="/login" method="POST">
-                    <input type="text" name="username" placeholder="Username" required>
-                    <input type="password" name="password" placeholder="Password" required>
-                    <button type="submit">Login</button>
-                </form>
-                <h2>Register</h2>
-                <form action="/register" method="POST">
-                    <input type="text" name="username" placeholder="Username" required>
-                    <input type="password" name="password" placeholder="Password" required>
-                    <button type="submit">Register</button>
-                </form>
-            </div>
-        `;
+        if (showRegister) {
+            authSection = `
+                <div class="form-container">
+                    <h1>Register</h1>
+                    <h2>Log in</h2>
+                    <form action="/register" method="POST">
+                        <input type="text" name="username" placeholder="Username" required>
+                        <div class="password-wrapper">
+                            <input type="password" id="register-password" name="password" placeholder="Password" required>
+                            <span id="password-toggle" class="password-toggle" onclick="togglePasswordVisibility()">👁️‍🗨️</span>
+                        </div>
+                        <button type="submit" class="login-btn">Register</button>
+                    </form>
+                    <div class="login-link">
+                        <a href="/">Log in</a>
+                    </div>
+                </div>
+            `;
+        } else {
+            authSection = `
+                <div class="form-container">
+                    <h1>Log In</h1>
+                    <div class="register-link">
+                        <a href="/register">Register</a>
+                    </div>
+                    <form action="/login" method="POST">
+                        <input type="text" name="username" placeholder="Username" required>
+                        <input type="password" name="password" placeholder="Password" required>
+                        <button type="submit" class="login-btn">Log in</button>
+                    </form>
+                </div>
+            `;
+        }
     } else {
         authSection = `
             <div class="form-container">
                 <p>Welcome, ${user.username}!</p>
                 <form action="/logout" method="POST">
-                    <button type="submit" class="logout-btn">Logout</button>
+                    <button type="submit" class="login-btn">Logout</button>
                 </form>
             </div>
         `;
         todoSection = `
-            <h1>To-Do List</h1>
-            <table>
-                <tr>
-                    <th>Number</th>
-                    <th>Text</th>
-                    <th>Action</th>
-                </tr>
-                {{rows}}
-            </table>
-            <div class="form-container">
-                <form action="/add" method="POST">
-                    <input type="text" name="text" placeholder="Add new item" required>
-                    <button type="submit">Add</button>
-                </form>
+            <div class="todo-section">
+                <h1>To-Do List</h1>
+                <table>
+                    <tr>
+                        <th>Number</th>
+                        <th>Text</th>
+                        <th>Action</th>
+                    </tr>
+                    {{rows}}
+                </table>
+                <div class="form-container">
+                    <form action="/add" method="POST">
+                        <input type="text" name="text" placeholder="Add new item" required>
+                        <button type="submit">Add</button>
+                    </form>
+                </div>
             </div>
         `;
     }
@@ -234,11 +302,11 @@ async function handleRequest(req, res) {
         try {
             const processedHtml = html
                 .replace('{{auth_section}}', authSection)
-                .replace('{{todo_section}}', todoSection.replace('{{rows}}', await getHtmlRows(user.id)));
+                .replace('{{todo_section}}', todoSection.replace('{{rows}}', await getHtmlRows(user.id, null)));
             res.writeHead(200, { 'Content-Type': 'text/html' });
             res.end(processedHtml);
         } catch (err) {
-            console.error(err);
+            console.error('Error processing GET /:', err);
             res.writeHead(500, { 'Content-Type': 'text/plain' });
             res.end('Error loading to-do list');
         }
@@ -258,7 +326,7 @@ async function handleRequest(req, res) {
                 res.writeHead(302, { 'Location': '/' });
                 res.end();
             } catch (err) {
-                console.error(err);
+                console.error('Error in /register route:', err);
                 res.writeHead(500, { 'Content-Type': 'text/plain' });
                 res.end('Error registering user');
             }
@@ -281,15 +349,14 @@ async function handleRequest(req, res) {
                     res.end('Invalid username or password');
                     return;
                 }
-                const sessionId = uuidv4();
-                sessions[sessionId] = user;
+                const sessionId = await createSession(user.id);
                 res.writeHead(302, {
                     'Location': '/',
                     'Set-Cookie': `sessionId=${sessionId}; HttpOnly; Path=/`
                 });
                 res.end();
             } catch (err) {
-                console.error(err);
+                console.error('Error in /login route:', err);
                 res.writeHead(500, { 'Content-Type': 'text/plain' });
                 res.end('Error logging in');
             }
@@ -297,8 +364,8 @@ async function handleRequest(req, res) {
     } else if (req.method === 'POST' && parsedUrl.pathname === '/logout') {
         const cookies = querystring.parse(req.headers.cookie || '', '; ');
         const sessionId = cookies.sessionId;
-        if (sessionId && sessions[sessionId]) {
-            delete sessions[sessionId];
+        if (sessionId) {
+            await deleteSession(sessionId);
         }
         res.writeHead(302, {
             'Location': '/',
@@ -326,7 +393,7 @@ async function handleRequest(req, res) {
                 res.writeHead(302, { 'Location': '/' });
                 res.end();
             } catch (err) {
-                console.error(err);
+                console.error('Error in /add route:', err);
                 res.writeHead(500, { 'Content-Type': 'text/plain' });
                 res.end('Error adding item');
             }
@@ -352,7 +419,7 @@ async function handleRequest(req, res) {
                 res.writeHead(302, { 'Location': '/' });
                 res.end();
             } catch (err) {
-                console.error(err);
+                console.error('Error in /delete route:', err);
                 res.writeHead(500, { 'Content-Type': 'text/plain' });
                 res.end('Error deleting item');
             }
@@ -380,7 +447,7 @@ async function handleRequest(req, res) {
                 res.writeHead(200, { 'Content-Type': 'text/html' });
                 res.end(processedHtml);
             } catch (err) {
-                console.error(err);
+                console.error('Error in /edit route:', err);
                 res.writeHead(500, { 'Content-Type': 'text/plain' });
                 res.end('Error entering edit mode');
             }
@@ -407,7 +474,7 @@ async function handleRequest(req, res) {
                 res.writeHead(302, { 'Location': '/' });
                 res.end();
             } catch (err) {
-                console.error(err);
+                console.error('Error in /confirm route:', err);
                 res.writeHead(500, { 'Content-Type': 'text/plain' });
                 res.end('Error confirming edit');
             }
@@ -420,11 +487,25 @@ async function handleRequest(req, res) {
         }
         res.writeHead(302, { 'Location': '/' });
         res.end();
+    } else if (req.method === 'GET' && parsedUrl.pathname === '/register') {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(html.replace('{{auth_section}}', authSection).replace('{{todo_section}}', ''));
     } else {
         res.writeHead(404, { 'Content-Type': 'text/plain' });
         res.end('Route not found');
     }
 }
+
+// Graceful shutdown to ensure pool is closed properly
+process.on('SIGTERM', () => {
+    pool.end().then(() => console.log('Pool closed'));
+    process.exit(0);
+});
+
+process.on('SIGINT', () => {
+    pool.end().then(() => console.log('Pool closed'));
+    process.exit(0);
+});
 
 const server = http.createServer(handleRequest);
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
