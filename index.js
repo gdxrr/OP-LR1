@@ -246,6 +246,7 @@ async function handleRequest(req, res) {
                     <div class="login-link">
                         <a href="/">Log in</a>
                     </div>
+                    <p class="error-message">{{error}}</p>
                 </div>
             `;
         } else {
@@ -260,6 +261,8 @@ async function handleRequest(req, res) {
                         <input type="password" name="password" placeholder="Password" required>
                         <button type="submit" class="login-btn">Log in</button>
                     </form>
+                    <div class="login-link"></div>
+                    <p class="error-message">{{error}}</p>
                 </div>
             `;
         }
@@ -296,13 +299,14 @@ async function handleRequest(req, res) {
     if (req.method === 'GET' && parsedUrl.pathname === '/') {
         if (!user) {
             res.writeHead(200, { 'Content-Type': 'text/html' });
-            res.end(html.replace('{{auth_section}}', authSection).replace('{{todo_section}}', ''));
+            res.end(html.replace('{{auth_section}}', authSection).replace('{{todo_section}}', '').replace('{{error}}', ''));
             return;
         }
         try {
             const processedHtml = html
                 .replace('{{auth_section}}', authSection)
-                .replace('{{todo_section}}', todoSection.replace('{{rows}}', await getHtmlRows(user.id, null)));
+                .replace('{{todo_section}}', todoSection.replace('{{rows}}', await getHtmlRows(user.id, null)))
+                .replace('{{error}}', '');
             res.writeHead(200, { 'Content-Type': 'text/html' });
             res.end(processedHtml);
         } catch (err) {
@@ -318,17 +322,24 @@ async function handleRequest(req, res) {
                 const postData = querystring.parse(body);
                 const { username, password } = postData;
                 if (!username || !password) {
-                    res.writeHead(400, { 'Content-Type': 'text/plain' });
-                    res.end('Username and password are required');
+                    authSection = authSection.replace('{{error}}', 'Username and password are required');
+                    res.writeHead(200, { 'Content-Type': 'text/html' });
+                    res.end(html.replace('{{auth_section}}', authSection).replace('{{todo_section}}', '').replace('{{error}}', ''));
                     return;
                 }
                 await registerUser(username, password);
-                res.writeHead(302, { 'Location': '/' });
-                res.end();
+                authSection = authSection.replace('{{error}}', '');
+                res.writeHead(200, { 'Content-Type': 'text/html' });
+                res.end(html.replace('{{auth_section}}', authSection).replace('{{todo_section}}', '').replace('{{error}}', ''));
             } catch (err) {
                 console.error('Error in /register route:', err);
-                res.writeHead(500, { 'Content-Type': 'text/plain' });
-                res.end('Error registering user');
+                let errorMessage = 'An error occurred during registration';
+                if (err.code === 'ER_DUP_ENTRY') {
+                    errorMessage = 'Username already exists';
+                }
+                authSection = authSection.replace('{{error}}', errorMessage);
+                res.writeHead(200, { 'Content-Type': 'text/html' });
+                res.end(html.replace('{{auth_section}}', authSection).replace('{{todo_section}}', '').replace('{{error}}', ''));
             }
         });
     } else if (req.method === 'POST' && parsedUrl.pathname === '/login') {
@@ -339,26 +350,61 @@ async function handleRequest(req, res) {
                 const postData = querystring.parse(body);
                 const { username, password } = postData;
                 if (!username || !password) {
-                    res.writeHead(400, { 'Content-Type': 'text/plain' });
-                    res.end('Username and password are required');
+                    authSection = authSection.replace('{{error}}', 'Username and password are required');
+                    res.writeHead(200, { 'Content-Type': 'text/html' });
+                    res.end(html.replace('{{auth_section}}', authSection).replace('{{todo_section}}', '').replace('{{error}}', ''));
                     return;
                 }
                 const user = await loginUser(username, password);
                 if (!user) {
-                    res.writeHead(401, { 'Content-Type': 'text/plain' });
-                    res.end('Invalid username or password');
+                    authSection = authSection.replace('{{error}}', 'Invalid username or password');
+                    res.writeHead(200, { 'Content-Type': 'text/html' });
+                    res.end(html.replace('{{auth_section}}', authSection).replace('{{todo_section}}', '').replace('{{error}}', ''));
                     return;
                 }
+                // Successful login: create session and render authenticated view
                 const sessionId = await createSession(user.id);
-                res.writeHead(302, {
-                    'Location': '/',
+                authSection = `
+                    <div class="form-container">
+                        <p>Welcome, ${user.username}!</p>
+                        <form action="/logout" method="POST">
+                            <button type="submit" class="login-btn">Logout</button>
+                        </form>
+                    </div>
+                `;
+                todoSection = `
+                    <div class="todo-section">
+                        <h1>To-Do List</h1>
+                        <table>
+                            <tr>
+                                <th>Number</th>
+                                <th>Text</th>
+                                <th>Action</th>
+                            </tr>
+                            {{rows}}
+                        </table>
+                        <div class="form-container">
+                            <form action="/add" method="POST">
+                                <input type="text" name="text" placeholder="Add new item" required>
+                                <button type="submit">Add</button>
+                            </form>
+                        </div>
+                    </div>
+                `;
+                const processedHtml = html
+                    .replace('{{auth_section}}', authSection)
+                    .replace('{{todo_section}}', todoSection.replace('{{rows}}', await getHtmlRows(user.id, null)))
+                    .replace('{{error}}', '');
+                res.writeHead(200, {
+                    'Content-Type': 'text/html',
                     'Set-Cookie': `sessionId=${sessionId}; HttpOnly; Path=/`
                 });
-                res.end();
+                res.end(processedHtml);
             } catch (err) {
                 console.error('Error in /login route:', err);
-                res.writeHead(500, { 'Content-Type': 'text/plain' });
-                res.end('Error logging in');
+                authSection = authSection.replace('{{error}}', 'An error occurred during login');
+                res.writeHead(200, { 'Content-Type': 'text/html' });
+                res.end(html.replace('{{auth_section}}', authSection).replace('{{todo_section}}', '').replace('{{error}}', ''));
             }
         });
     } else if (req.method === 'POST' && parsedUrl.pathname === '/logout') {
@@ -367,11 +413,31 @@ async function handleRequest(req, res) {
         if (sessionId) {
             await deleteSession(sessionId);
         }
-        res.writeHead(302, {
-            'Location': '/',
+        // Force clear the session cookie and render login page
+        authSection = `
+            <div class="form-container">
+                <h1>Log In</h1>
+                <div class="register-link">
+                    <a href="/register">Register</a>
+                </div>
+                <form action="/login" method="POST">
+                    <input type="text" name="username" placeholder="Username" required>
+                    <input type="password" name="password" placeholder="Password" required>
+                    <button type="submit" class="login-btn">Log in</button>
+                </form>
+                <div class="login-link"></div>
+                <p class="error-message">{{error}}</p>
+            </div>
+        `;
+        const processedHtml = html
+            .replace('{{auth_section}}', authSection)
+            .replace('{{todo_section}}', '')
+            .replace('{{error}}', '');
+        res.writeHead(200, {
+            'Content-Type': 'text/html',
             'Set-Cookie': 'sessionId=; HttpOnly; Path=/; Max-Age=0'
         });
-        res.end();
+        res.end(processedHtml);
     } else if (req.method === 'POST' && parsedUrl.pathname === '/add') {
         if (!user) {
             res.writeHead(401, { 'Content-Type': 'text/plain' });
@@ -390,8 +456,11 @@ async function handleRequest(req, res) {
                     return;
                 }
                 await addListItem(text, user.id);
-                res.writeHead(302, { 'Location': '/' });
-                res.end();
+                res.writeHead(200, { 'Content-Type': 'text/html' });
+                res.end(html
+                    .replace('{{auth_section}}', authSection)
+                    .replace('{{todo_section}}', todoSection.replace('{{rows}}', await getHtmlRows(user.id, null)))
+                    .replace('{{error}}', ''));
             } catch (err) {
                 console.error('Error in /add route:', err);
                 res.writeHead(500, { 'Content-Type': 'text/plain' });
@@ -416,8 +485,11 @@ async function handleRequest(req, res) {
                     return;
                 }
                 await deleteListItem(id, user.id);
-                res.writeHead(302, { 'Location': '/' });
-                res.end();
+                res.writeHead(200, { 'Content-Type': 'text/html' });
+                res.end(html
+                    .replace('{{auth_section}}', authSection)
+                    .replace('{{todo_section}}', todoSection.replace('{{rows}}', await getHtmlRows(user.id, null)))
+                    .replace('{{error}}', ''));
             } catch (err) {
                 console.error('Error in /delete route:', err);
                 res.writeHead(500, { 'Content-Type': 'text/plain' });
@@ -443,7 +515,8 @@ async function handleRequest(req, res) {
                 }
                 const processedHtml = html
                     .replace('{{auth_section}}', authSection)
-                    .replace('{{todo_section}}', todoSection.replace('{{rows}}', await getHtmlRows(user.id, id)));
+                    .replace('{{todo_section}}', todoSection.replace('{{rows}}', await getHtmlRows(user.id, id)))
+                    .replace('{{error}}', '');
                 res.writeHead(200, { 'Content-Type': 'text/html' });
                 res.end(processedHtml);
             } catch (err) {
@@ -471,8 +544,11 @@ async function handleRequest(req, res) {
                     return;
                 }
                 await editListItem(id, text, user.id);
-                res.writeHead(302, { 'Location': '/' });
-                res.end();
+                res.writeHead(200, { 'Content-Type': 'text/html' });
+                res.end(html
+                    .replace('{{auth_section}}', authSection)
+                    .replace('{{todo_section}}', todoSection.replace('{{rows}}', await getHtmlRows(user.id, null)))
+                    .replace('{{error}}', ''));
             } catch (err) {
                 console.error('Error in /confirm route:', err);
                 res.writeHead(500, { 'Content-Type': 'text/plain' });
@@ -485,11 +561,14 @@ async function handleRequest(req, res) {
             res.end('Unauthorized');
             return;
         }
-        res.writeHead(302, { 'Location': '/' });
-        res.end();
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(html
+            .replace('{{auth_section}}', authSection)
+            .replace('{{todo_section}}', todoSection.replace('{{rows}}', await getHtmlRows(user.id, null)))
+            .replace('{{error}}', ''));
     } else if (req.method === 'GET' && parsedUrl.pathname === '/register') {
         res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end(html.replace('{{auth_section}}', authSection).replace('{{todo_section}}', ''));
+        res.end(html.replace('{{auth_section}}', authSection).replace('{{todo_section}}', '').replace('{{error}}', ''));
     } else {
         res.writeHead(404, { 'Content-Type': 'text/plain' });
         res.end('Route not found');
