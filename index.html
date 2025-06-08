@@ -5,135 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>To-Do List</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-        }
-        #todoList {
-            border-collapse: collapse;
-            width: 70%;
-            margin: 0 auto;
-        }
-        #todoList th, #todoList td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }
-        #todoList th {
-            background-color: #f0f0f0;
-        }
-        #todoList th:first-child, #todoList th:last-child {
-            width: 5%;
-        }
-        #todoList th:nth-child(2) {
-            width: 90%;
-        }
-        .add-form {
-            margin-top: 20px;
-            width: 70%;
-            margin: 20px auto;
-        }
-        .add-form input[type="text"] {
-            padding: 8px;
-            width: 83%;
-        }
-        .add-form button {
-            padding: 8px;
-            width: 15%;
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            cursor: pointer;
-        }
-        .add-form button:hover {
-            background-color: #45a049;
-        }
-        .delete-form, .edit-form, .confirm-form, .cancel-form {
-            display: inline-block;
-            margin: 0 4px;
-        }
-        .action-buttons {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .delete-btn {
-            cursor: pointer;
-            background-color: #ff4444;
-            color: white;
-            border: none;
-            padding: 6px 10px;
-            border-radius: 4px;
-            font-size: 16px;
-        }
-        .delete-btn:hover {
-            background-color: #cc0000;
-        }
-        .edit-btn {
-            cursor: pointer;
-            background-color: #4444ff;
-            color: white;
-            border: none;
-            padding: 6px 10px;
-            border-radius: 4px;
-            font-size: 16px;
-        }
-        .edit-btn:hover {
-            background-color: #0000cc;
-        }
-        .confirm-btn {
-            cursor: pointer;
-            background-color: #44ff44;
-            color: white;
-            border: none;
-            padding: 6px 10px;
-            border-radius: 4px;
-            font-size: 16px;
-        }
-        .confirm-btn:hover {
-            background-color: #00cc00;
-        }
-        .cancel-btn {
-            cursor: pointer;
-            background-color: #ff4444;
-            color: white;
-            border: none;
-            padding: 6px 10px;
-            border-radius: 4px;
-            font-size: 16px;
-        }
-        .cancel-btn:hover {
-            background-color: #cc0000;
-        }
-        .edit-input {
-            width: 70%;
-            padding: 6px;
-            margin-right: 8px;
-        }
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .action-buttons { display: flex; gap: 5px; }
+        .edit-input { width: 70%; }
+        .confirm-btn, .cancel-btn, .edit-btn, .delete-btn { cursor: pointer; }
+        .form-container { margin-bottom: 20px; }
+        .form-container input { margin: 5px; padding: 5px; }
+        .form-container button { padding: 5px 10px; }
+        .logout-btn { margin-bottom: 20px; }
     </style>
 </head>
 <body>
-
-<h2 style="text-align: center;">To-Do List</h2>
-
-<table id="todoList">
-    <thead>
-        <tr>
-            <th>Number</th>
-            <th>Text</th>
-            <th>Action</th>
-        </tr>
-    </thead>
-    <tbody id="listBody">
-        {{rows}}
-    </tbody>
-</table>
-
-<div class="add-form">
-    <form action="/add" method="POST">
-        <input type="text" id="newItem" name="text" placeholder="Enter new item">
-        <button type="submit">Add</button>
-    </form>
-</div>
-
+    {{auth_section}}
+    {{todo_section}}
 </body>
 </html>
