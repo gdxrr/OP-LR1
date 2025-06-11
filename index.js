@@ -6,8 +6,10 @@ const url = require('url');
 const querystring = require('querystring');
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
+const TelegramBot = require('node-telegram-bot-api');
 
 const PORT = 3000;
+const TELEGRAM_BOT_TOKEN = '8138777504:AAFkTFoi6Wl1YyCocT25lsdgUhX42zDywBI'; // Replace with your bot token
 
 // Database connection pool settings
 const pool = mysql.createPool({
@@ -20,12 +22,20 @@ const pool = mysql.createPool({
     queueLimit: 0,
 });
 
+// Initialize Telegram bot with polling
+const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
+
+// Store Telegram chat ID to user ID mapping (in-memory for simplicity)
+const telegramUserMap = new Map();
+// Store login state for users awaiting password (chatId -> username)
+const loginState = new Map();
+
 // Helper function to hash passwords
 function hashPassword(password) {
     return crypto.createHash('sha256').update(password).digest('hex');
 }
 
-// Helper function to get user from session
+// Helper function to get user from session (for web)
 async function getUserFromSession(req) {
     const cookies = querystring.parse(req.headers.cookie || '', '; ');
     const sessionId = cookies.sessionId;
@@ -40,6 +50,18 @@ async function getUserFromSession(req) {
     const [userRows] = await pool.execute(
         'SELECT id, username FROM users WHERE id = ?',
         [rows[0].user_id]
+    );
+    return userRows.length > 0 ? { id: userRows[0].id, username: userRows[0].username } : null;
+}
+
+// Helper function to get user from Telegram chat ID
+async function getUserFromChatId(chatId) {
+    const userId = telegramUserMap.get(chatId);
+    if (!userId) return null;
+
+    const [userRows] = await pool.execute(
+        'SELECT id, username FROM users WHERE id = ?',
+        [userId]
     );
     return userRows.length > 0 ? { id: userRows[0].id, username: userRows[0].username } : null;
 }
@@ -206,6 +228,152 @@ async function getHtmlRows(userId, editingId) {
     }
 }
 
+// Telegram Bot Command Handlers
+bot.onText(/\/start/, (msg) => {
+    const chatId = msg.chat.id;
+    bot.sendMessage(chatId, 'Welcome to the To-Do List Bot! Please use /login <username> to start the authentication process.');
+});
+
+bot.onText(/\/login (.+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const username = match[1].trim();
+
+    try {
+        const [rows] = await pool.execute(
+            'SELECT id, username FROM users WHERE username = ?',
+            [username]
+        );
+        if (rows.length === 0) {
+            bot.sendMessage(chatId, 'Username not found. Please register on the website first.');
+            return;
+        }
+        // Store username in login state and prompt for password
+        loginState.set(chatId, username);
+        bot.sendMessage(chatId, 'Please send your password.');
+    } catch (error) {
+        console.error('Error in /login command:', error);
+        bot.sendMessage(chatId, 'An error occurred during login.');
+    }
+});
+
+// Handle text messages for password input
+bot.on('text', async (msg) => {
+    const chatId = msg.chat.id;
+    // Ignore messages that are commands
+    if (msg.text.startsWith('/')) return;
+    // Check if user is in login state
+    if (!loginState.has(chatId)) return;
+
+    const username = loginState.get(chatId);
+    const password = msg.text.trim();
+
+    try {
+        const user = await loginUser(username, password);
+        if (!user) {
+            bot.sendMessage(chatId, 'Invalid password. Please try again or use /login <username> to restart.');
+            return;
+        }
+        // Successful login: store user ID and clear login state
+        telegramUserMap.set(chatId, user.id);
+        loginState.delete(chatId);
+        bot.sendMessage(chatId, `Successfully logged in as ${user.username}! Use /add, /list, /delete, or /edit to manage your to-do list.`);
+    } catch (error) {
+        console.error('Error processing password:', error);
+        bot.sendMessage(chatId, 'An error occurred during login. Please try again or use /login <username> to restart.');
+        loginState.delete(chatId);
+    }
+});
+
+bot.onText(/\/add (.+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const user = await getUserFromChatId(chatId);
+    if (!user) {
+        bot.sendMessage(chatId, 'Please login first using /login <username>.');
+        return;
+    }
+    const text = match[1].trim();
+    if (!text) {
+        bot.sendMessage(chatId, 'Please provide text for the to-do item, e.g., /add Buy groceries.');
+        return;
+    }
+    try {
+        await addListItem(text, user.id);
+        bot.sendMessage(chatId, `Added: "${text}" to your to-do list.`);
+    } catch (error) {
+        console.error('Error in /add command:', error);
+        bot.sendMessage(chatId, 'Error adding item.');
+    }
+});
+
+bot.onText(/\/list/, async (msg) => {
+    const chatId = msg.chat.id;
+    const user = await getUserFromChatId(chatId);
+    if (!user) {
+        bot.sendMessage(chatId, 'Please login first using /login <username>.');
+        return;
+    }
+    try {
+        const items = await retrieveListItems(user.id);
+        if (items.length === 0) {
+            bot.sendMessage(chatId, 'Your to-do list is empty.');
+            return;
+        }
+        const response = items.map((item, index) => `${index + 1}. ${item.text} (ID: ${item.id})`).join('\n');
+        bot.sendMessage(chatId, `Your to-do list:\n${response}`);
+    } catch (error) {
+        console.error('Error in /list command:', error);
+        bot.sendMessage(chatId, 'Error retrieving list.');
+    }
+});
+
+bot.onText(/\/delete (\d+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const user = await getUserFromChatId(chatId);
+    if (!user) {
+        bot.sendMessage(chatId, 'Please login first using /login <username>.');
+        return;
+    }
+    const id = match[1];
+    try {
+        const result = await deleteListItem(id, user.id);
+        if (result.affectedRows === 0) {
+            bot.sendMessage(chatId, `No item found with ID ${id}.`);
+            return;
+        }
+        bot.sendMessage(chatId, `Deleted item with ID ${id}.`);
+    } catch (error) {
+        console.error('Error in /delete command:', error);
+        bot.sendMessage(chatId, 'Error deleting item.');
+    }
+});
+
+bot.onText(/\/edit (\d+) (.+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const user = await getUserFromChatId(chatId);
+    if (!user) {
+        bot.sendMessage(chatId, 'Please login first using /login <username>.');
+        return;
+    }
+    const id = match[1];
+    const text = match[2].trim();
+    if (!text) {
+        bot.sendMessage(chatId, 'Please provide new text for the item, e.g., /edit 1 New text.');
+        return;
+    }
+    try {
+        const result = await editListItem(id, text, user.id);
+        if (result.affectedRows === 0) {
+            bot.sendMessage(chatId, `No item found with ID ${id}.`);
+            return;
+        }
+        bot.sendMessage(chatId, `Updated item with ID ${id} to: "${text}"`);
+    } catch (error) {
+        console.error('Error in /edit command:', error);
+        bot.sendMessage(chatId, 'Error editing item.');
+    }
+});
+
+// Web Request Handler
 async function handleRequest(req, res) {
     const parsedUrl = url.parse(req.url);
     const user = await getUserFromSession(req);
@@ -361,7 +529,6 @@ async function handleRequest(req, res) {
                     res.end(html.replace('{{auth_section}}', authSection).replace('{{todo_section}}', '').replace('{{error}}', ''));
                     return;
                 }
-                // Successful login: create session and render authenticated view
                 const sessionId = await createSession(user.id);
                 authSection = `
                     <div class="form-container">
@@ -412,7 +579,6 @@ async function handleRequest(req, res) {
         if (sessionId) {
             await deleteSession(sessionId);
         }
-        // Force clear the session cookie and render login page
         authSection = `
             <div class="form-container">
                 <h1>Log In</h1>
@@ -577,11 +743,13 @@ async function handleRequest(req, res) {
 // Graceful shutdown to ensure pool is closed properly
 process.on('SIGTERM', () => {
     pool.end().then(() => console.log('Pool closed'));
+    bot.stopPolling().then(() => console.log('Telegram bot polling stopped'));
     process.exit(0);
 });
 
 process.on('SIGINT', () => {
     pool.end().then(() => console.log('Pool closed'));
+    bot.stopPolling().then(() => console.log('Telegram bot polling stopped'));
     process.exit(0);
 });
 
