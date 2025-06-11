@@ -9,7 +9,7 @@ const { v4: uuidv4 } = require('uuid');
 const TelegramBot = require('node-telegram-bot-api');
 
 const PORT = 3000;
-const TELEGRAM_BOT_TOKEN = '8138777504:AAFkTFoi6Wl1YyCocT25lsdgUhX42zDywBI'; // Replace with your bot token
+const TELEGRAM_BOT_TOKEN = '8138777504:AAFkTFoi6Wl1YyCocT25lsdgUhX42zDywBI'; 
 
 // Database connection pool settings
 const pool = mysql.createPool({
@@ -231,7 +231,7 @@ async function getHtmlRows(userId, editingId) {
 // Telegram Bot Command Handlers
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
-    bot.sendMessage(chatId, 'Welcome to the To-Do List Bot! Please use /login <username> to start the authentication process.');
+    bot.sendMessage(chatId, 'Добро пожаловать в бот для списка дел! Используйте /login <имя_пользователя> для начала авторизации.');
 });
 
 bot.onText(/\/login (.+)/, async (msg, match) => {
@@ -244,15 +244,15 @@ bot.onText(/\/login (.+)/, async (msg, match) => {
             [username]
         );
         if (rows.length === 0) {
-            bot.sendMessage(chatId, 'Username not found. Please register on the website first.');
+            bot.sendMessage(chatId, 'Имя пользователя не найдено. Пожалуйста, сначала зарегистрируйтесь на сайте.');
             return;
         }
         // Store username in login state and prompt for password
         loginState.set(chatId, username);
-        bot.sendMessage(chatId, 'Please send your password.');
+        bot.sendMessage(chatId, 'Пожалуйста, отправьте ваш пароль.');
     } catch (error) {
-        console.error('Error in /login command:', error);
-        bot.sendMessage(chatId, 'An error occurred during login.');
+        console.error('Ошибка в команде /login:', error);
+        bot.sendMessage(chatId, 'Произошла ошибка при входе.');
     }
 });
 
@@ -270,16 +270,16 @@ bot.on('text', async (msg) => {
     try {
         const user = await loginUser(username, password);
         if (!user) {
-            bot.sendMessage(chatId, 'Invalid password. Please try again or use /login <username> to restart.');
+            bot.sendMessage(chatId, 'Неверный пароль. Попробуйте снова или используйте /login <имя_пользователя> для перезапуска.');
             return;
         }
         // Successful login: store user ID and clear login state
         telegramUserMap.set(chatId, user.id);
         loginState.delete(chatId);
-        bot.sendMessage(chatId, `Successfully logged in as ${user.username}! Use /add, /list, /delete, or /edit to manage your to-do list.`);
+        bot.sendMessage(chatId, `Успешный вход как ${user.username}! Используйте:\n/add <название дела> - для добавления дела,\n/list - для отображения списка дел,\n/delete <номер дела в списке> - для удаления дела,\n/edit <номер дела в списке> <новое название дела> - для редактирования списка дел.`);
     } catch (error) {
-        console.error('Error processing password:', error);
-        bot.sendMessage(chatId, 'An error occurred during login. Please try again or use /login <username> to restart.');
+        console.error('Ошибка обработки пароля:', error);
+        bot.sendMessage(chatId, 'Произошла ошибка при входе. Попробуйте снова или используйте /login <имя_пользователя> для перезапуска.');
         loginState.delete(chatId);
     }
 });
@@ -288,20 +288,20 @@ bot.onText(/\/add (.+)/, async (msg, match) => {
     const chatId = msg.chat.id;
     const user = await getUserFromChatId(chatId);
     if (!user) {
-        bot.sendMessage(chatId, 'Please login first using /login <username>.');
+        bot.sendMessage(chatId, 'Пожалуйста, сначала войдите, используя /login <имя_пользователя>.');
         return;
     }
     const text = match[1].trim();
     if (!text) {
-        bot.sendMessage(chatId, 'Please provide text for the to-do item, e.g., /add Buy groceries.');
+        bot.sendMessage(chatId, 'Пожалуйста, укажите текст для задачи, например, /add Купить продукты.');
         return;
     }
     try {
         await addListItem(text, user.id);
-        bot.sendMessage(chatId, `Added: "${text}" to your to-do list.`);
+        bot.sendMessage(chatId, `Добавлено: "${text}" в ваш список дел.`);
     } catch (error) {
-        console.error('Error in /add command:', error);
-        bot.sendMessage(chatId, 'Error adding item.');
+        console.error('Ошибка в команде /add:', error);
+        bot.sendMessage(chatId, 'Ошибка при добавлении задачи.');
     }
 });
 
@@ -309,20 +309,20 @@ bot.onText(/\/list/, async (msg) => {
     const chatId = msg.chat.id;
     const user = await getUserFromChatId(chatId);
     if (!user) {
-        bot.sendMessage(chatId, 'Please login first using /login <username>.');
+        bot.sendMessage(chatId, 'Пожалуйста, сначала войдите, используя /login <имя_пользователя>.');
         return;
     }
     try {
         const items = await retrieveListItems(user.id);
         if (items.length === 0) {
-            bot.sendMessage(chatId, 'Your to-do list is empty.');
+            bot.sendMessage(chatId, 'Ваш список дел пуст.');
             return;
         }
-        const response = items.map((item, index) => `${index + 1}. ${item.text} (ID: ${item.id})`).join('\n');
-        bot.sendMessage(chatId, `Your to-do list:\n${response}`);
+        const response = items.map((item, index) => `${index + 1}. ${item.text}`).join('\n');
+        bot.sendMessage(chatId, `Ваш список дел:\n${response}`);
     } catch (error) {
-        console.error('Error in /list command:', error);
-        bot.sendMessage(chatId, 'Error retrieving list.');
+        console.error('Ошибка в команде /list:', error);
+        bot.sendMessage(chatId, 'Ошибка при получении списка.');
     }
 });
 
@@ -330,20 +330,22 @@ bot.onText(/\/delete (\d+)/, async (msg, match) => {
     const chatId = msg.chat.id;
     const user = await getUserFromChatId(chatId);
     if (!user) {
-        bot.sendMessage(chatId, 'Please login first using /login <username>.');
+        bot.sendMessage(chatId, 'Пожалуйста, сначала войдите, используя /login <имя_пользователя>.');
         return;
     }
-    const id = match[1];
+    const index = parseInt(match[1]) - 1; // Convert to zero-based index
     try {
-        const result = await deleteListItem(id, user.id);
-        if (result.affectedRows === 0) {
-            bot.sendMessage(chatId, `No item found with ID ${id}.`);
+        const items = await retrieveListItems(user.id);
+        if (index < 0 || index >= items.length) {
+            bot.sendMessage(chatId, `Нет задачи с номером ${index + 1}.`);
             return;
         }
-        bot.sendMessage(chatId, `Deleted item with ID ${id}.`);
+        const id = items[index].id;
+        await deleteListItem(id, user.id);
+        bot.sendMessage(chatId, `Удалена задача с номером ${index + 1}.`);
     } catch (error) {
-        console.error('Error in /delete command:', error);
-        bot.sendMessage(chatId, 'Error deleting item.');
+        console.error('Ошибка в команде /delete:', error);
+        bot.sendMessage(chatId, 'Ошибка при удалении задачи.');
     }
 });
 
@@ -351,25 +353,27 @@ bot.onText(/\/edit (\d+) (.+)/, async (msg, match) => {
     const chatId = msg.chat.id;
     const user = await getUserFromChatId(chatId);
     if (!user) {
-        bot.sendMessage(chatId, 'Please login first using /login <username>.');
+        bot.sendMessage(chatId, 'Пожалуйста, сначала войдите, используя /login <имя_пользователя>.');
         return;
     }
-    const id = match[1];
+    const index = parseInt(match[1]) - 1; // Convert to zero-based index
     const text = match[2].trim();
     if (!text) {
-        bot.sendMessage(chatId, 'Please provide new text for the item, e.g., /edit 1 New text.');
+        bot.sendMessage(chatId, 'Пожалуйста, укажите новый текст для задачи, например, /edit 1 Новый текст.');
         return;
     }
     try {
-        const result = await editListItem(id, text, user.id);
-        if (result.affectedRows === 0) {
-            bot.sendMessage(chatId, `No item found with ID ${id}.`);
+        const items = await retrieveListItems(user.id);
+        if (index < 0 || index >= items.length) {
+            bot.sendMessage(chatId, `Нет задачи с номером ${index + 1}.`);
             return;
         }
-        bot.sendMessage(chatId, `Updated item with ID ${id} to: "${text}"`);
+        const id = items[index].id;
+        await editListItem(id, text, user.id);
+        bot.sendMessage(chatId, `Обновлена задача с номером ${index + 1} на: "${text}"`);
     } catch (error) {
-        console.error('Error in /edit command:', error);
-        bot.sendMessage(chatId, 'Error editing item.');
+        console.error('Ошибка в команде /edit:', error);
+        bot.sendMessage(chatId, 'Ошибка при редактировании задачи.');
     }
 });
 
